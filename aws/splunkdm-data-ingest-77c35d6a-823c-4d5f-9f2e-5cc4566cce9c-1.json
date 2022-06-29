@@ -1,0 +1,775 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Template for setting up AWS resources required to ingest data to Splunk Cloud through Amazon Kinesis Data Firehose delivery streams and AWS Lambda functions",
+  "Conditions": {
+    "CreateSingleRegionResources": {
+      "Fn::Equals": ["us-east-1", {"Ref" : "AWS::Region"}]
+    },
+    "CreateIngestNonUsEast1": {
+      "Fn::Not": [{
+        "Fn::Equals": ["us-east-1", {"Ref" : "AWS::Region" }]
+      }]
+    },
+    "CreateIngestUsEast1": {
+      "Fn::Equals": ["us-east-1", "notapplicable"]
+    },
+    "CreateDataIngest": {
+      "Fn::Or": [{"Condition": "CreateIngestNonUsEast1"}, {"Condition": "CreateIngestUsEast1"}]
+    }
+  },
+  "Resources": {
+    "SplunkDMCloudTrailFailedEventsS3BucketLambdaRoleWCHandle": {
+      "Type": "AWS::CloudFormation::WaitConditionHandle",
+      "Metadata": {
+        "WaitFor": {
+          "Fn::If": [
+            "CreateSingleRegionResources",
+            { "Ref": "SplunkDMCloudTrailFailedEventsS3BucketLambdaRole" },
+            ""
+          ]
+        }
+      }
+    },
+    "SplunkDMCloudTrailFailedEventsS3BucketLambdaRole": {
+      "Type": "AWS::IAM::Role",
+      "Condition": "CreateSingleRegionResources",
+      "Properties": {
+        "RoleName": "SplunkDMCloudTrailFailedEventsS3BucketLambdaRole",
+        "Description": "This role will allow the SplunkDMCloudTrailFailedEventsS3BucketLambda AWS Lambda function to create, delete the Amazon S3 bucket for AWS CloudTrail firehose failed events",
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": {
+            "Sid": "TrustRelationship",
+            "Action": "sts:AssumeRole",
+            "Effect": "Allow",
+            "Principal": {
+              "Service": "lambda.amazonaws.com"
+            }
+          }
+        },
+        "Policies": [
+          {
+            "PolicyName": "SplunkDMCloudTrailFailedEventsLambdaRolePolicy",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "s3:ListBucket",
+                    "s3:CreateBucket",
+                    "s3:DeleteBucket",
+                    "s3:DeleteObject",
+                    "s3:PutBucketTagging",
+                    "s3:GetBucketTagging"
+                  ],
+                  "Resource": ["arn:aws:s3:::splunkdmfailed-ctrail*"]
+                },
+                {
+                  "Sid": "CreateLogGroupPermission",
+                  "Effect": "Allow",
+                  "Action": "logs:CreateLogGroup",
+                  "Resource": {
+                    "Fn::Join": [
+                      ":",
+                      [
+                        "arn:aws:logs:*",
+                        { "Ref": "AWS::AccountId" },
+                        "log-group:/aws/lambda/SplunkDMCloudTrailFailedEventsS3BucketLambda*"
+                      ]
+                    ]
+                  }
+                },
+                {
+                  "Sid": "WriteToLogGroupPermission",
+                  "Effect": "Allow",
+                  "Action": ["logs:CreateLogStream", "logs:PutLogEvents"],
+                  "Resource": {
+                    "Fn::Join": [
+                      ":",
+                      [
+                        "arn:aws:logs:*",
+                        { "Ref": "AWS::AccountId" },
+                        "log-group:/aws/lambda/SplunkDMCloudTrailFailedEventsS3BucketLambda*:*"
+                      ]
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "SplunkDMCloudTrailDataSrcDiscLambdaRoleWCHandle": {
+      "Type": "AWS::CloudFormation::WaitConditionHandle",
+      "Metadata": {
+        "WaitFor": {
+          "Fn::If": [
+            "CreateSingleRegionResources",
+            {"Ref": "SplunkDMCloudTrailDataSrcDiscLambdaRole"},
+            ""
+          ]
+        }
+      }
+    },
+    "SplunkDMCloudTrailDataSrcDiscLambdaRole": {
+      "Type": "AWS::IAM::Role",
+      "Condition": "CreateSingleRegionResources",
+      "Properties": {
+        "RoleName": "SplunkDMCloudTrailDataSrcDiscLambdaRole",
+        "Description": "This role will allow the SplunkDMCloudTrailDataSrcDisc AWS Lambda function to publish logs to Amazon CloudWatch and to discover AWS CloudTrail settings",
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": {
+            "Sid": "TrustRelationship",
+            "Action": "sts:AssumeRole",
+            "Effect": "Allow",
+            "Principal": {
+              "Service": "lambda.amazonaws.com"
+            }
+          }
+        },
+        "Policies": [
+          {
+            "PolicyName": "SplunkDMCloudTrailDataSrcDiscLambdaRolePolicy",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Sid": "CreateLogGroupPermission",
+                  "Effect": "Allow",
+                  "Action": "logs:CreateLogGroup",
+                  "Resource": {
+                    "Fn::Join": [
+                      ":",
+                      ["arn:aws:logs:*", {"Ref": "AWS::AccountId"},
+                      "log-group:/aws/lambda/SplunkDMCloudTrailDataSrcDisc*"]
+                    ]
+                  }
+                },
+                {
+                  "Sid": "WriteToLogGroupPermission",
+                  "Effect": "Allow",
+                  "Action": [
+                    "logs:CreateLogStream",
+                    "logs:PutLogEvents"
+                  ],
+                  "Resource": {
+                    "Fn::Join": [
+                      ":",
+                      ["arn:aws:logs:*", {"Ref": "AWS::AccountId"},
+                      "log-group:/aws/lambda/SplunkDMCloudTrailDataSrcDisc*:*"]
+                    ]
+                  }
+                },
+                {
+                  "Sid": "SubscriptionFilterPermission",
+                  "Effect": "Allow",
+                  "Action": [
+                    "logs:PutSubscriptionFilter",
+                    "logs:DeleteSubscriptionFilter"
+                  ],
+                  "Resource": {
+                    "Fn::Join": [
+                      ":",
+                      ["arn:aws:logs:*", {"Ref": "AWS::AccountId"},
+                        "log-group:*"]
+                    ]
+                  }
+                },
+                {
+                  "Sid": "CloudTrailPermission",
+                  "Effect": "Allow",
+                  "Action": [
+                    "cloudtrail:DescribeTrails"
+                  ],
+                  "Resource": "*"
+                },
+                {
+                  "Sid": "IamPermission",
+                  "Effect": "Allow",
+                  "Action": "iam:PassRole",
+                  "Resource": {
+                    "Fn::Join": [
+                      ":",
+                      [
+                        "arn:aws:iam:", {"Ref": "AWS::AccountId"},
+                        "role/SplunkDMCloudTrailCWLtoKinesisFirehoseRole"
+                      ]
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "SplunkDMCloudWatchLogProcessorLambdaRoleWCHandle": {
+      "Type": "AWS::CloudFormation::WaitConditionHandle",
+      "Metadata": {
+        "WaitFor": {
+          "Fn::If": [
+            "CreateSingleRegionResources",
+            {"Ref": "SplunkDMCloudWatchLogProcessorLambdaRole"},
+            ""
+          ]
+        }
+      }
+    },
+    "SplunkDMCloudWatchLogProcessorLambdaRole": {
+      "Type": "AWS::IAM::Role",
+      "Condition": "CreateSingleRegionResources",
+      "Properties": {
+        "RoleName": "SplunkDMCloudWatchLogProcessorLambdaRole",
+        "Description": "This role will allow the SplunkDMCloudWatchLogProcessor AWS Lambda function to publish logs to Amazon CloudWatch and to write unzipped records to the firehose delivery stream.",
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Sid": "TrustRelationship",
+              "Effect": "Allow",
+              "Action": "sts:AssumeRole",
+              "Principal": {
+                "Service": "lambda.amazonaws.com"
+              }
+            }
+          ]
+        },
+        "Policies": [
+          {
+            "PolicyName": "SplunkDMCloudWatchLogProcessorLambdaRolePolicy",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Sid": "FirehosePutRecordBatchPermission",
+                  "Effect": "Allow",
+                  "Action": "firehose:PutRecordBatch",
+                  "Resource": {
+                    "Fn::Join": [
+                      ":",
+                      ["arn:aws:firehose:*", {"Ref": "AWS::AccountId"},
+                        "deliverystream/SplunkDMCloudTrailDeliveryStream"
+                      ]
+                    ]
+                  }
+                },
+                {
+                  "Sid": "CreateLogGroupPermission",
+                  "Effect": "Allow",
+                  "Action": "logs:CreateLogGroup",
+                  "Resource": {
+                    "Fn::Join": [
+                      ":",
+                      [
+                        "arn:aws:logs:*", {"Ref": "AWS::AccountId"},
+                        "log-group:/aws/lambda/SplunkDMCloudWatchLogProcessor*"
+                      ]
+                    ]
+                  }
+                },
+                {
+                  "Sid": "WriteToLogGroupPermission",
+                  "Effect": "Allow",
+                  "Action": [
+                    "logs:CreateLogStream",
+                    "logs:PutLogEvents"
+                  ],
+                  "Resource": {
+                    "Fn::Join": [
+                      ":",
+                      [
+                        "arn:aws:logs:*", {"Ref": "AWS::AccountId"},
+                        "log-group:/aws/lambda/SplunkDMCloudWatchLogProcessor*:*"
+                      ]
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "SplunkDMCloudTrailFirehoseDeliveryRoleWCHandle": {
+      "Type": "AWS::CloudFormation::WaitConditionHandle",
+      "Metadata": {
+        "WaitFor": {
+          "Fn::If": [
+            "CreateSingleRegionResources",
+            {"Ref": "SplunkDMCloudTrailFirehoseDeliveryRole"},
+            ""
+          ]
+        }
+      }
+    },
+    "SplunkDMCloudTrailFirehoseDeliveryRole": {
+      "Type": "AWS::IAM::Role",
+      "Condition": "CreateSingleRegionResources",
+      "Properties": {
+        "RoleName": "SplunkDMCloudTrailFirehoseDeliveryRole",
+        "Description": "This role will provide Amazon Kinesis Data Firehose permissions to Amazon S3, Amazon CloudWatch Logs, AWS Lambda and Amazon Kinesis for its operations while delivering AWS CloudTrail data to Splunk",
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Sid": "TrustRelationship",
+              "Effect": "Allow",
+              "Action": "sts:AssumeRole",
+              "Principal": {
+                "Service": "firehose.amazonaws.com"
+              },
+              "Condition": {
+                "StringEquals": {
+                  "sts:ExternalId": {
+                    "Ref": "AWS::AccountId"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "Policies": [
+          {
+            "PolicyName": "SplunkDMFirehoseDeliveryRolePolicy",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Sid": "S3Permission",
+                  "Effect": "Allow",
+                  "Action": [
+                    "s3:AbortMultipartUpload",
+                    "s3:GetBucketLocation",
+                    "s3:GetObject",
+                    "s3:ListBucket",
+                    "s3:ListBucketMultipartUploads",
+                    "s3:PutObject"
+                  ],
+                  "Resource": [
+                    {
+                      "Fn::Join": [
+                        "",
+                        [
+                          "arn:aws:s3:::",
+                          {
+                            "Fn::Join": [
+                              "-",
+                              ["splunkdmfailed-ctrail", {"Ref": "AWS::AccountId"}, "*"]
+                            ]
+                          }
+                        ]
+                      ]
+                    },
+                    {
+                      "Fn::Join": [
+                        "",
+                        [
+                          "arn:aws:s3:::",
+                          {
+                            "Fn::Join": [
+                              "-",
+                              ["splunkdmfailed-ctrail", {"Ref": "AWS::AccountId"}, "*"]
+                            ]
+                          },
+                          "/*"
+                        ]
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "Sid": "LambdaPermission",
+                  "Effect": "Allow",
+                  "Action": [
+                    "lambda:InvokeFunction",
+                    "lambda:GetFunctionConfiguration"
+                  ],
+                  "Resource": {
+                    "Fn::Join": [
+                      ":",
+                      [
+                        "arn:aws:lambda:*", {"Ref": "AWS::AccountId"},
+                        "function:SplunkDMCloudWatchLogProcessor*"
+                      ]
+                    ]
+                  }
+                },
+                {
+                  "Sid": "CloudwatchLogsPermission",
+                  "Effect": "Allow",
+                  "Action": "logs:PutLogEvents",
+                  "Resource": {
+                    "Fn::Join": [
+                      ":",
+                      [
+                        "arn:aws:logs:*", {"Ref": "AWS::AccountId"},
+                        "log-group:/aws/kinesisfirehose/SplunkDMCloudTrailDeliveryStream:log-stream:*"
+                      ]
+                    ]
+                  }
+                },
+                {
+                  "Sid": "KinesisPermission",
+                  "Effect": "Allow",
+                  "Action": [
+                    "kinesis:DescribeStream",
+                    "kinesis:GetShardIterator",
+                    "kinesis:GetRecords",
+                    "kinesis:ListShards"
+                  ],
+                  "Resource": {
+                    "Fn::Join": [
+                      ":",
+                      [
+                        "arn:aws:kinesis:*", {"Ref": "AWS::AccountId"},
+                        "stream/%FIREHOSE_STREAM_NAME%"
+                      ]
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "SplunkDMCloudTrailCWLtoKinesisFirehoseRoleWCHandle": {
+      "Type": "AWS::CloudFormation::WaitConditionHandle",
+      "Metadata": {
+        "WaitFor": {
+          "Fn::If": [
+            "CreateSingleRegionResources",
+            {"Ref": "SplunkDMCloudTrailCWLtoKinesisFirehoseRole"},
+            ""
+          ]
+        }
+      }
+    },
+    "SplunkDMCloudTrailCWLtoKinesisFirehoseRole": {
+      "Type": "AWS::IAM::Role",
+      "Condition": "CreateSingleRegionResources",
+      "Properties": {
+        "RoleName": "SplunkDMCloudTrailCWLtoKinesisFirehoseRole",
+        "Description": "This role will allow Amazon CloudWatch log subscription filters to send AWS CloudTrail data to Amazon Kinesis Data Firehose delivery stream",
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Sid": "TrustRelationship",
+              "Effect": "Allow",
+              "Action": "sts:AssumeRole",
+              "Principal": {
+                "Service": "logs.amazonaws.com"
+              }
+            }
+          ]
+        },
+        "Policies": [
+          {
+            "PolicyName": "SplunkDMCWLtoKinesisFirehosePolicy",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Sid": "FirehosePermission",
+                  "Effect": "Allow",
+                  "Action": [
+                    "firehose:PutRecord",
+                    "firehose:PutRecordBatch"
+                  ],
+                  "Resource": {
+                    "Fn::Join": [
+                      ":",
+                      [
+                        "arn:aws:firehose:*", {"Ref": "AWS::AccountId"},
+                        "deliverystream/SplunkDMCloudTrailDeliveryStream"
+                      ]
+                    ]
+                  }
+                },
+                {
+                  "Sid": "SplunkDMCloudTrailCWLtoKinesisFirehoseRoleIamPermission",
+                  "Effect": "Allow",
+                  "Action": "iam:PassRole",
+                  "Resource": {
+                    "Fn::Join": [
+                      ":",
+                      [
+                        "arn:aws:iam:", {"Ref": "AWS::AccountId"},
+                        "role/SplunkDMCloudTrailCWLtoKinesisFirehoseRole"
+                      ]
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "SplunkDMCloudTrailDataSrcDiscLambda": {
+      "Type": "AWS::Lambda::Function",
+      "Condition": "CreateDataIngest",
+      "Properties": {
+        "Code": {
+	        "ZipFile": "import boto3\nimport cfnresponse\n\n\ndef get_cw_log_groups(region):\n    try:\n        client = boto3.client('cloudtrail', region_name=region)\n        print('Getting all AWS CloudTrail trails for ' + region)\n        response = client.describe_trails()\n        cw_log_group_names = []\n        for trail in response['trailList']:\n            cw_log_group_arn = trail.get('CloudWatchLogsLogGroupArn', None)\n            if cw_log_group_arn is None:\n                continue\n\n            if (not trail['IsMultiRegionTrail']) or (trail['HomeRegion'] == region):\n                cw_log_group_names.append(trail['CloudWatchLogsLogGroupArn'].split(':')[-2])\n        print('cw_log_groups are')\n        print(cw_log_group_names)\n        return cw_log_group_names\n    except Exception as e:\n        print('Failed to get Amazon CloudWatch log group names')\n        raise e\n\n\ndef create_filters(log_groups, region, firehose_arn, role_arn, prefix, pattern):\n    try:\n        client = boto3.client('logs', region_name=region)\n        for log_group in log_groups:\n            try:\n                print('Creating subscription filter -' + log_group)\n                client.put_subscription_filter(\n                    logGroupName=log_group,\n                    filterName=prefix + '-' + log_group,\n                    filterPattern=pattern,\n                    destinationArn=firehose_arn,\n                    roleArn=role_arn\n                )\n                print('Subscription filter ' + prefix + '-' + log_group + 'created successfully')\n            except Exception as e:\n                print('Failed to create subscription filter with log group name: ' + log_group +\n                      ', filter name: ' + prefix + '-' + log_group)\n                raise e\n    except Exception as e:\n        print('Failed to create subscription filter')\n        raise e\n\n\ndef delete_filters(log_groups, region, prefix):\n    try:\n        client = boto3.client('logs', region_name=region)\n        for log_group in log_groups:\n            try:\n                client.delete_subscription_filter(\n                    logGroupName=log_group,\n                    filterName=prefix + '-' + log_group,\n                )\n                print('Delete subscription filter successfully - ' + prefix + '-' + log_group)\n            except Exception as e:\n                if 'ResourceNotFoundException' in str(e):\n                    pass\n                else:\n                    print('Failed to delete subscription filter with log group name: ' + log_group +\n                          ', filter name: ' + prefix + '-' + log_group)\n                    raise e\n    except Exception as e:\n        print('Failed to delete subscription filter')\n        raise e\n\n\ndef lambda_handler(event, context):\n    try:\n        print('Boto3 version - {0}'.format(boto3.__version__))\n        resource_properties = event.get('ResourceProperties')\n        current_region = event['StackId'].split('arn:aws:cloudformation:')[1].split(':')[0]\n        request_type = event.get('RequestType')\n        cw_log_groups = get_cw_log_groups(current_region)\n        firehose_arn = resource_properties.get('DestinationArn')\n        role_arn = resource_properties.get('RoleArn')\n        pattern = resource_properties.get('FilterPattern')\n        prefix = resource_properties.get('FilterNamePrefix')\n        if request_type == 'Create':\n            create_filters(cw_log_groups, current_region, firehose_arn, role_arn, prefix, pattern,)\n            cfnresponse.send(event, context, cfnresponse.SUCCESS, {})\n        elif request_type == 'Delete':\n            delete_filters(cw_log_groups, current_region, prefix)\n            cfnresponse.send(event, context, cfnresponse.SUCCESS, {})\n    except Exception as e:\n        print(e)\n        cfnresponse.send(event, context, cfnresponse.FAILED, None)\n"
+        },
+        "Description": "This Lambda function will discover AWS CloudTrail Log Groups and then create or delete a subscription filter, which targets Amazon Kinesis Data Firehose Delivery Stream that ingests AWS CloudTrail events to Splunk",
+        "FunctionName": "SplunkDMCloudTrailDataSrcDisc",
+        "Handler": "index.lambda_handler",
+        "Runtime": "python3.9",
+        "Role": {
+          "Fn::Join": [
+            ":",
+            [
+              "arn:aws:iam:", {"Ref": "AWS::AccountId"},
+              "role/SplunkDMCloudTrailDataSrcDiscLambdaRole"
+            ]
+          ]
+        },
+        "Timeout": 60
+      },
+      "DependsOn": [
+        "SplunkDMCloudTrailDataSrcDiscLambdaRoleWCHandle"
+      ]
+    },
+    "SplunkDMCWLogProcessorLambda": {
+      "Type": "AWS::Lambda::Function",
+      "Condition": "CreateDataIngest",
+      "Properties": {
+        "Code": {
+	        "ZipFile": "import base64, json, gzip, boto3, io, time\n\ndef transfm_log_ev(log_ev):\n    return log_ev['message'] + '\\n'\n\ndef process_recs(recs):\n    p_size = len(recs)*128\n    size_met = False\n    for r in recs:\n        data = base64.b64decode(r['data'])\n        str_io_data = io.BytesIO(data)\n        with gzip.GzipFile(fileobj=str_io_data, mode='r') as f:\n            data = json.loads(f.read())\n\n        rec_id = r['recordId']\n        if data['messageType'] == 'CONTROL_MESSAGE':\n            yield {'result': 'Dropped','recordId': rec_id}\n        elif data['messageType'] == 'DATA_MESSAGE':\n            if size_met:\n                yield {'result':'Ok','recordId':rec_id}\n            else:\n                data = ''.join([transfm_log_ev(e) for e in data['logEvents']])\n                data = base64.b64encode(data.encode('utf-8')).decode()\n                if (p_size+len(data)+len(rec_id)) > 6000000:\n                    size_met = True\n                    yield {'result':'Ok','recordId':rec_id}\n                else:\n                    p_size += len(data)+len(rec_id)\n                    yield {'data': data,'result': 'Ok','recordId': rec_id}\n        else:\n            yield {'result': 'ProcessingFailed','recordId': rec_id}\n\ndef put_recs_to_fh(strm, recs, client, attempts):\n    f_recs = []\n    codes = []\n    err_msg = ''\n\n    resp = None\n    try:\n        resp = client.put_record_batch(DeliveryStreamName=strm, Records=recs)\n    except Exception as e:\n        f_recs = recs\n        err_msg = str(e)\n\n    if not f_recs and resp and resp['FailedPutCount'] > 0:\n        for idx, res in enumerate(resp['RequestResponses']):\n            if 'ErrorCode' not in res or not res['ErrorCode']:\n                continue\n\n            codes.append(res['ErrorCode'])\n            f_recs.append(recs[idx])\n\n        err_msg = 'Err codes: ' + ','.join(codes)\n\n    if len(f_recs) > 0:\n        if attempts + 1 < 5:\n            print('Retrying after putRecBatch fail. %s' % (err_msg))\n            time.sleep(1)\n            put_recs_to_fh(strm, f_recs, client, attempts + 1)\n        else:\n            raise RuntimeError('Failed ingest after 5 attempts. %s' % err_msg)\n\n\ndef handler(event, ctxt):\n    recs_in_req = len(event['records'])\n\n    recs = list(process_recs(event['records']))\n    data_by_rec_id = {rec['recordId']: {'data': base64.b64decode(rec['data'])} for rec in event['records']}\n    put_rec_batches = []\n    recs_to_reing = []\n    recs_to_reing_size = 0\n    total_recs_to_reing = 0\n\n    for idx, rec in enumerate(recs):\n        if rec['result'] != 'Ok':\n            continue\n\n        if 'data' not in rec:\n            total_recs_to_reing += 1\n            rec_to_reingest = {'Data': data_by_rec_id[rec['recordId']]['data']}\n\n            if len(recs_to_reing) >= 500 or (recs_to_reing_size + len(rec_to_reingest['Data'])) > 4000000:\n                put_rec_batches.append(recs_to_reing)\n                recs_to_reing = []\n                recs_to_reing_size = 0\n\n            recs_to_reing.append(rec_to_reingest)\n            recs_to_reing_size += len(rec_to_reingest['Data'])\n            recs[idx]['result'] = 'Dropped'\n\n    if len(recs_to_reing) > 0:\n        put_rec_batches.append(recs_to_reing)\n\n    recs_reingstd = 0\n    if len(put_rec_batches) > 0:\n        client = boto3.client('firehose', event['deliveryStreamArn'].split(':')[3])\n        for recBatch in put_rec_batches:\n            put_recs_to_fh(event['deliveryStreamArn'].split('/')[1], recBatch, client, 0)\n            recs_reingstd += len(recBatch)\n            print('Reingested %d/%d recs out of %d Recs Recvd' % (\n                recs_reingstd, total_recs_to_reing, recs_in_req))\n\n        print('Recs reingsted: ' + str(recs_reingstd))\n\n    print('Recs recvd: ' + str(recs_in_req) + ' Recs processed: ' + str(recs_in_req - recs_reingstd))\n\n    return {'records': recs}\n"
+        },
+        "Description": "Decompress and decode CloudWatch logs into format that can be ingested into Splunk",
+        "FunctionName": "SplunkDMCloudWatchLogProcessor",
+        "Handler": "index.handler",
+        "Runtime": "python3.9",
+        "Role": {
+          "Fn::Join": [
+            ":",
+            [
+              "arn:aws:iam:", {"Ref": "AWS::AccountId"},
+              "role/SplunkDMCloudWatchLogProcessorLambdaRole"
+            ]
+          ]
+        },
+        "Timeout": 30
+      },
+      "DependsOn": [
+        "SplunkDMCloudWatchLogProcessorLambdaRoleWCHandle"
+      ]
+    },
+    "SplunkDMCloudTrailFailedEventsS3BucketLambda": {
+      "Type": "AWS::Lambda::Function",
+      "Properties": {
+        "Code": {
+          "ZipFile": "import boto3\nimport cfnresponse\n\ndef create_bucket(name, region, tags_list):\n    client = boto3.client('s3')\n    try:\n        print('Creating Amazon S3 bucket {0} in {1}'.format(name, region))\n        if region == 'us-east-1':\n            client.create_bucket(\n                ACL='private',\n                Bucket=name\n            )\n        else:\n            client.create_bucket(\n                ACL='private',\n                Bucket=name,\n                CreateBucketConfiguration={\n                    'LocationConstraint': region\n                }\n            )\n        print('Amazon S3 bucket {0} created successfully'.format(name))\n    except Exception as e:\n        if 'BucketAlreadyExists' in str(e) or 'BucketAlreadyOwnedByYou' in str(e):\n            print('Bucket already exists. Warning - {0}'.format(e))\n        else:\n            print('Failed to create Amazon S3 bucket. Error - {0}'.format(e))\n            raise e\n    if tags_list is not None and len(tags_list) > 0:\n        try:\n            client.put_bucket_tagging(Bucket=name, Tagging={'TagSet': tags_list})\n            print('Tagged bucket successfully')\n        except Exception as e:\n            print('Failed to tag S3 bucket. Error - {0}'.format(e))\n            raise e\n\ndef empty_bucket(name, region):\n    s3 = boto3.resource('s3')\n    bucket = s3.Bucket(name)\n    try:\n        print('Emptying Amazon S3 bucket {0} in {1}'.format(name, region))\n        bucket.objects.all().delete()\n        print(\n            'All the objects in Amazon S3 bucket {0} deleted successfully. The bucket is empty now.'.format(name))\n    except Exception as e:\n        print('Failed to empty the Amazon S3 bucket. Error - {0}'.format(e))\n        raise e\n\ndef list_of_dicts_equals(list_of_dict1, list_of_dict2):\n    if list_of_dict1 is None and list_of_dict2 is None:\n        return True\n    if list_of_dict1 is None or list_of_dict2 is None or len(list_of_dict1) != len(list_of_dict2):\n        return False\n    for entry in list_of_dict1:\n        if entry not in list_of_dict2:\n            return False\n    return True\n\ndef can_delete(name, tags_list, client):\n    s3_bucket_tags = None\n    try:\n        s3_bucket_tags = client.get_bucket_tagging(Bucket=name).get('TagSet')\n    except Exception as e:\n        if 'NoSuchTagSet' in str(e):\n            print('No tags on the S3 bucket : ' + name)\n        elif 'NoSuchBucket' in str(e):\n            print('No bucket with name {0}. Warning - {1}'.format(name, e))\n            return False\n        else:\n            raise e\n    return list_of_dicts_equals(s3_bucket_tags, tags_list)\n\ndef delete_bucket(name, region, client):\n    try:\n        # First empty the bucket\n        empty_bucket(name, region)\n        print('Deleting Amazon S3 bucket {0} in {1}'.format(name, region))\n        client.delete_bucket(\n            Bucket=name\n        )\n        print(\n            'Amazon S3 bucket {0} is deleted successfully.'.format(name))\n    except Exception as e:\n        if 'NoSuchBucket' in str(e):\n            print('No bucket with name {0}. Warning - {1}'.format(name, e))\n        else:\n            print('Failed to delete the Amazon S3 bucket. Error - {0}'.format(e))\n            raise e\n\ndef handle_delete(name, region, tags_list):\n    client = boto3.client('s3')\n    if can_delete(name, tags_list, client):\n        delete_bucket(name, region, client)\n    else:\n        print('Did not delete the bucket : ' + name)\n\ndef lambda_handler(event, context):\n    try:\n        print('Boto3 version - {0}'.format(boto3.__version__))\n        response = {}\n        curr_reg = event['StackId'].split('arn:aws:cloudformation:')[1].split(':')[0]\n        resource_properties = event.get(\n            'ResourceProperties')\n        request_type = event.get('RequestType')\n        bucket_name = resource_properties.get('BucketName')\n        if request_type == 'Create' or request_type == 'Update':\n            create_bucket(bucket_name, curr_reg, resource_properties.get('Tags'))\n            cfnresponse.send(event, context, cfnresponse.SUCCESS, response)\n        elif request_type == 'Delete':\n            handle_delete(bucket_name, curr_reg, resource_properties.get('Tags'))\n            cfnresponse.send(event, context, cfnresponse.SUCCESS, response)\n    except Exception as e:\n        print(\n            'Failure during Amazon S3 bucket {0} operation. Error - {1}'.format(request_type, e))\n        cfnresponse.send(event, context, cfnresponse.FAILED, None)\n"
+        },
+        "Description": "Function to create, delete failed events Amazon S3 bucket for AWS CloudTrail firehose delivery stream for Splunk Data Manager",
+        "FunctionName": "SplunkDMCloudTrailFailedEventsS3BucketLambda",
+        "Handler": "index.lambda_handler",
+        "Runtime": "python3.9",
+        "Role": {
+          "Fn::Join": [
+            ":",
+            [
+              "arn:aws:iam:",
+              { "Ref": "AWS::AccountId" },
+              "role/SplunkDMCloudTrailFailedEventsS3BucketLambdaRole"
+            ]
+          ]
+        },
+        "Timeout": 900
+      },
+      "DependsOn": ["SplunkDMCloudTrailFailedEventsS3BucketLambdaRoleWCHandle"]
+    },
+    "SplunkDMCtrailCWLogsFailedEvents": {
+      "Type": "Custom::CustomResource",
+      "Condition": "CreateDataIngest",
+      "Properties": {
+        "ServiceToken": {
+          "Fn::GetAtt": ["SplunkDMCloudTrailFailedEventsS3BucketLambda", "Arn"]
+        },
+        "BucketName": {
+          "Fn::Join": [
+            "-",
+            [
+              "splunkdmfailed-ctrail",
+              { "Ref": "AWS::AccountId" },
+              { "Ref": "AWS::Region" }
+            ]
+          ]
+        },
+        "Tags": [{"Key": "SplunkDMVersion", "Value": "1"}]
+      }
+    },
+    "SplunkDMCtrailFirehoseCWLogGroup": {
+      "Type": "AWS::Logs::LogGroup",
+      "Condition": "CreateDataIngest",
+      "Properties": {
+        "LogGroupName": "/aws/kinesisfirehose/SplunkDMCloudTrailDeliveryStream"
+      }
+    },
+    "SplunkDMCtrailFirehoseCWLogStreamSplunkDelivery": {
+      "Type": "AWS::Logs::LogStream",
+      "Condition": "CreateDataIngest",
+      "Properties": {
+        "LogGroupName": {
+          "Ref": "SplunkDMCtrailFirehoseCWLogGroup"
+        },
+        "LogStreamName": "SplunkDelivery"
+      }
+    },
+    "SplunkDMCtrailFirehoseCWLogStreamS3Delivery": {
+      "Type": "AWS::Logs::LogStream",
+      "Condition": "CreateDataIngest",
+      "Properties": {
+        "LogGroupName": {
+          "Ref": "SplunkDMCtrailFirehoseCWLogGroup"
+        },
+        "LogStreamName": "S3Delivery"
+      }
+    },
+    "SplunkDMCloudTrailDeliveryStream": {
+      "Type": "AWS::KinesisFirehose::DeliveryStream",
+      "Condition": "CreateDataIngest",
+      "Properties": {
+        "DeliveryStreamName": "SplunkDMCloudTrailDeliveryStream",
+        "DeliveryStreamType": "DirectPut",
+        "SplunkDestinationConfiguration": {
+          "CloudWatchLoggingOptions": {
+            "Enabled": true,
+            "LogGroupName": {
+              "Ref": "SplunkDMCtrailFirehoseCWLogGroup"
+            },
+            "LogStreamName": "SplunkDelivery"
+          },
+          "S3Configuration": {
+            "CloudWatchLoggingOptions": {
+              "Enabled": true,
+              "LogGroupName": {
+                "Ref": "SplunkDMCtrailFirehoseCWLogGroup"
+              },
+              "LogStreamName": "S3Delivery"
+            },
+            "CompressionFormat": "UNCOMPRESSED",
+            "BucketARN": {
+              "Fn::Join": [
+                "",
+                [
+                  "arn:aws:s3:::",
+                  {
+                    "Fn::Join": [
+                      "-",
+                      [
+                        "splunkdmfailed-ctrail",
+                        { "Ref": "AWS::AccountId" },
+                        { "Ref": "AWS::Region" }
+                      ]
+                    ]
+                  }
+                ]
+              ]
+            },
+            "RoleARN": {
+              "Fn::Join": [
+                ":",
+                [
+                  "arn:aws:iam:", {"Ref": "AWS::AccountId"},
+                  "role/SplunkDMCloudTrailFirehoseDeliveryRole"
+                ]
+              ]
+            },
+            "BufferingHints": {
+              "IntervalInSeconds": 300,
+              "SizeInMBs": 1
+            }
+          },
+          "ProcessingConfiguration": {
+            "Enabled": true,
+            "Processors": [
+              {
+                "Parameters": [
+                  {
+                    "ParameterName": "LambdaArn",
+                    "ParameterValue": {
+                      "Fn::GetAtt": [
+                        "SplunkDMCWLogProcessorLambda",
+                        "Arn"
+                      ]
+                    }
+                  },
+                  {
+                    "ParameterName": "RoleArn",
+                    "ParameterValue": {
+                      "Fn::Join": [
+                        ":",
+                        [
+                          "arn:aws:iam:", {"Ref": "AWS::AccountId"},
+                          "role/SplunkDMCloudTrailFirehoseDeliveryRole"
+                        ]
+                      ]
+                    }
+                  }
+                ],
+                "Type": "Lambda"
+              }
+            ]
+          },
+          "HECEndpointType": "Raw",
+          "HECToken": "DAB91738-4D6A-4C8F-9530-47624E1150B5",
+          "HECAcknowledgmentTimeoutInSeconds": 180,
+          "RetryOptions": {
+            "DurationInSeconds": 300
+          },
+          "HECEndpoint": "https://http-inputs-firehose-fattlogging.splunkcloud.com:443",
+          "S3BackupMode": "FailedEventsOnly"
+        }
+      },
+      "DependsOn": [
+        "SplunkDMCloudTrailFirehoseDeliveryRoleWCHandle",
+        "SplunkDMCWLogProcessorLambda",
+        "SplunkDMCtrailCWLogsFailedEvents",
+        "SplunkDMCtrailFirehoseCWLogGroup"
+      ]
+    },
+    "SplunkDMCtrailCWLogSubscriptionFilterCustomResource": {
+      "Type": "Custom::CustomResource",
+      "Condition": "CreateDataIngest",
+      "Properties": {
+        "ServiceToken": {
+          "Fn::GetAtt": [
+            "SplunkDMCloudTrailDataSrcDiscLambda",
+            "Arn"
+          ]
+        },
+        "FilterPattern": "",
+        "RoleArn": {
+          "Fn::Join": [
+            ":",
+            [
+              "arn:aws:iam:", {"Ref": "AWS::AccountId"},
+              "role/SplunkDMCloudTrailCWLtoKinesisFirehoseRole"
+            ]
+          ]
+        },
+        "DestinationArn": {
+          "Fn::GetAtt": [
+            "SplunkDMCloudTrailDeliveryStream",
+            "Arn"
+          ]
+        },
+        "FilterNamePrefix": "splunkdm-subscription-filter"
+      },
+      "DependsOn": [
+        "SplunkDMCloudTrailCWLtoKinesisFirehoseRoleWCHandle",
+        "SplunkDMCloudTrailDataSrcDiscLambda",
+        "SplunkDMCloudTrailDeliveryStream"
+      ]
+    }
+
+  }
+}

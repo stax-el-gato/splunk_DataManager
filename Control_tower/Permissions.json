@@ -1,0 +1,42 @@
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+                "iam:PassRole",
+                "s3:GetObject",
+                "s3:PutObject",
+                "s3:ListBucket",
+                "s3:CreateBucket",
+                "s3:DeleteBucket",
+                "s3:DeleteObject",
+                "s3:GetBucketPolicy",
+                "s3:PutBucketPolicy",
+                "s3:DeleteBucketPolicy",
+                "cloudformation:UpdateStackSet",
+                "cloudformation:DeleteStackSet",
+                "cloudformation:DeleteStackInstances",
+                "cloudformation:CreateStackInstances",
+                "cloudformation:CreateStack",
+                "cloudformation:DeleteStack",
+                "cloudformation:TagResource"
+            ],
+            "Resource": [
+                "arn:aws:s3:::sdm-dataingest-cft-*",
+                "arn:aws:iam::*:role/AWSCloudFormationStackSetAdministrationRole",
+                "arn:aws:cloudformation:*:<CONTROL_ACCOUNT_ID>:stackset/SplunkDM*:*",
+                "arn:aws:cloudformation:*:<CONTROL_ACCOUNT_ID>:stack/SplunkDM*/*"
+            ]
+        },
+        {
+            "Effect": "Allow",
+            "Action": [
+                "cloudformation:List*",
+                "cloudformation:Describe*",
+                "cloudformation:CreateStackSet"
+            ],
+            "Resource": "*"
+        }
+    ]
+}

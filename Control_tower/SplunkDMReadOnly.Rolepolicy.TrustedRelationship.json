@@ -1,0 +1,17 @@
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": "sts:AssumeRole",
+            "Principal": {
+                "AWS": "arn:aws:iam::630172805352:role/fattlogging"
+            },
+            "Condition": {
+                "StringEquals": {
+                    "sts:ExternalId": "8bd8141b-f25f-11ec-b740-0eec5260b1e4"
+                }
+            }
+        }
+    ]
+}

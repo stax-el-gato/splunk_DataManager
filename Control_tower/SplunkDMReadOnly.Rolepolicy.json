@@ -1,0 +1,91 @@
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+                "iam:GetRole",
+                "iam:GetRolePolicy",
+                "iam:ListRolePolicies",
+                "iam:ListAttachedRolePolicies",
+                "iam:GetPolicy",
+                "iam:GetPolicyVersion",
+                "guardduty:GetMasterAccount",
+                "securityhub:ListMembers",
+                "securityhub:GetMasterAccount",
+                "securityhub:GetEnabledStandards",
+                "securityhub:ListInvitations",
+                "cloudformation:DescribeStacks"
+            ],
+            "Resource": [
+                "arn:aws:iam::<DATA_ACCOUNT_ID>:role/AWSCloudFormationStackSetExecutionRole",
+                "arn:aws:iam::<DATA_ACCOUNT_ID>:role/aws-service-role/member.org.stacksets.cloudformation.amazonaws.com/AWSServiceRoleForCloudFormationStackSetsOrgMember",
+                "arn:aws:iam::<DATA_ACCOUNT_ID>:role/SplunkDM*",
+                "arn:aws:iam::<DATA_ACCOUNT_ID>:policy/*",
+                "arn:aws:guardduty:*:<DATA_ACCOUNT_ID>:detector/*",
+                "arn:aws:securityhub:*:<DATA_ACCOUNT_ID>:hub/default",
+                "arn:aws:cloudformation:*:<DATA_ACCOUNT_ID>:stack/StackSet-SplunkDM*/*"
+            ]
+        },
+        {
+            "Effect": "Allow",
+            "Action": [
+                "cloudwatch:ListMetrics",
+                "cloudwatch:GetMetricStatistics",
+                "cloudtrail:DescribeTrails",
+                "access-analyzer:ListAnalyzers",
+                "guardduty:ListDetectors",
+                "guardduty:ListMembers",
+                "guardduty:ListInvitations",
+                "guardduty:GetFindingsStatistics"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Effect": "Allow",
+            "Action": [
+                "logs:DescribeLogGroups",
+                "logs:DescribeSubscriptionFilters"
+            ],
+            "Resource": [
+                "arn:aws:logs:*:<DATA_ACCOUNT_ID>:log-group:*"
+            ]
+        },
+        {
+            "Effect": "Allow",
+            "Action": [
+                "firehose:DescribeDeliveryStream"
+            ],
+            "Resource": [
+                "arn:aws:firehose:*:<DATA_ACCOUNT_ID>:deliverystream/SplunkDM*"
+            ]
+        },
+        {
+            "Effect": "Allow",
+            "Action": [
+                "events:DescribeRule"
+            ],
+            "Resource": [
+                "arn:aws:events:*:<DATA_ACCOUNT_ID>:rule/SplunkDM*"
+            ]
+        },
+        {
+            "Effect": "Allow",
+            "Action": [
+                "s3:ListBucket"
+            ],
+            "Resource": [
+                "arn:aws:s3:::splunkdmfailed*"
+            ]
+        },
+        {
+            "Effect": "Allow",
+            "Action": [
+                "lambda:GetFunction"
+            ],
+            "Resource": [
+                "arn:aws:lambda:*:<DATA_ACCOUNT_ID>:function:SplunkDM*"
+            ]
+        }
+    ]
+}
